@@ -1,0 +1,13 @@
+numpy==1.26.4
+Pillow
+black
+pre-commit
+pyright
+pylint
+flake8
+isort
+pandas
+seaborn
+matplotlib
+scikit-learn
+picsellia
