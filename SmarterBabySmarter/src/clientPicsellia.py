@@ -143,7 +143,8 @@ YOLO_DIR = "./yolo_dataset"
 DATASET_ID = "0193688e-aa8f-7cbe-9396-bec740a262d0"
 
 client = Client(
-    api_token="a89eb6bbf402bd5cb538415ebf46b2709c16d4ed",
+    #TODO mettre son token
+    api_token="token",
     organization_name=ORGANIZATION_NAME,
 )
 
