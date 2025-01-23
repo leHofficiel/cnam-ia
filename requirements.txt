@@ -11,3 +11,5 @@ seaborn
 matplotlib
 scikit-learn
 picsellia
+pytest
+pytest-cov
