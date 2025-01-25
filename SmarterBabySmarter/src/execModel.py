@@ -4,7 +4,7 @@ from ultralytics import YOLO
 
 if __name__ == "__main__":
     IMAGE_PATH = "./images"
-    MODEL_PATH = "./runs/detect/train/weights/best.pt"
+    MODEL_PATH = "./runs/detect/train3/weights/best.pt"
 
     model = YOLO(MODEL_PATH)
 

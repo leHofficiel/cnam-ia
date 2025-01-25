@@ -29,11 +29,11 @@ def on_train_end(trainer:DetectionTrainer):
     experiment.log_parameters(config)
 
 if __name__ == "__main__":
-    ORGA_NAME = "Picsalex-MLOps"
-    API_TOKEN = "a89eb6bbf402bd5cb538415ebf46b2709c16d4ed"
-    DATASET_ID = "0193688e-aa8f-7cbe-9396-bec740a262d0"
-    PROJECT_NAME = "Groupe_4"
-    EXPERIMENT_NAME = "experiment-0"
+    ORGA_NAME = ""
+    API_TOKEN = ""
+    DATASET_ID = ""
+    PROJECT_NAME = ""
+    EXPERIMENT_NAME = ""
     DATASET_PATH = "./dataset"
     ANNOTATION_PATH = "./annotations"
 
