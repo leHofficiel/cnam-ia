@@ -4,10 +4,7 @@ black
 pre-commit
 pyright
 pylint
-flake8
-isort
 pandas
-seaborn
-matplotlib
 scikit-learn
 picsellia
+ultralytics

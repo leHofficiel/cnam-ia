@@ -163,3 +163,10 @@ cython_debug/
 
 input_images/
 datasets/
+annotations/
+dataset/
+images/
+runs/
+yolo11n.pt
+.idea/
+
