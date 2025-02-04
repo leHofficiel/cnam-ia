@@ -3,6 +3,7 @@ import sys
 
 import yaml
 import pandas
+from networkx import config
 from picsellia import Client
 from picsellia.types.enums import AnnotationFileType, LogType, InferenceType, Framework
 import shutil
@@ -29,11 +30,11 @@ def on_train_end(trainer:DetectionTrainer):
     experiment.log_parameters(config)
 
 if __name__ == "__main__":
-    ORGA_NAME = ""
-    API_TOKEN = ""
-    DATASET_ID = ""
-    PROJECT_NAME = ""
-    EXPERIMENT_NAME = ""
+    ORGA_NAME = "Picsalex-MLOps"
+    API_TOKEN = "a89eb6bbf402bd5cb538415ebf46b2709c16d4ed"
+    DATASET_ID = "0193688e-aa8f-7cbe-9396-bec740a262d0"
+    PROJECT_NAME = "Groupe_4"
+    EXPERIMENT_NAME = "Babymonster"
     DATASET_PATH = "./dataset"
     ANNOTATION_PATH = "./annotations"
 
@@ -97,21 +98,106 @@ if __name__ == "__main__":
 
     config = {
         "data": './dataset/yolo_config.yaml',
-        "batch_size": 16,
+        "batch_size": 32,
         "imgsz": 640,
         "device": "cuda",
         "workers": 8,
-        "optimizer": "auto",
+        "optimizer": "AdamW",
         "lr0": 0.01,
-        "patience": 100,
-        "epochs": 2,
+        "patience": 40,
+        "epochs": 150,
+       # "iterations": 250,
     }
 
     print(f'Device type: cuda')
     # Load a model
-    model = YOLO("yolo11n.pt")
+    #model = YOLO("yolo11n.pt")
+    model = YOLO("yolo11m.pt")
     model.add_callback("on_train_end", on_train_end)
 
+    print(model.task)
+    print(model.overrides)
+    results = model.train(
+    data = config["data"],
+    epochs = 500,
+#    iterations = 175,
+    patience = 50,
+    imgsz = 640,
+    device = "cuda",
+    batch = 16,
+    workers = 8,
+    mosaic = 0,
+    close_mosaic = 0,
+    seed = 42,
+    optimizer = "auto",
+
+    )
+
+
+    '''
+    cos_lr = True,
+    lr0=0.00179,
+    lrf = 0.01518,
+    momentum = 0.86333,
+    weight_decay = 0.00051,
+    warmup_epochs = 3.09569,
+    warmup_momentum = 0.44584,
+    box = 5.1931,
+    cls = 0.74142,
+    dfl = 1.16798,
+    hsv_h = 0.01322,
+    hsv_s = 0.41755,
+    hsv_v = 0.20555,
+    degrees = 0.0,
+    translate = 0.0979,
+    scale = 0.4822,
+    shear = 0.0,
+    perspective = 0.0,
+    flipud = 0.0,
+    fliplr = 0.16048,
+    bgr = 0.0,
+    mixup = 0.0,
+    copy_paste = 0.0,
+    '''
+
+    '''
+    results = model.train(
+        data=config["data"],
+        epochs=config["epochs"],
+        imgsz=config["imgsz"],
+        device=config["device"],
+        batch=config["batch_size"],
+        workers=config["workers"],
+        mosaic=0,
+        close_mosaic=0,
+        seed=42,
+        optimizer=config["optimizer"],
+        patience=75,
+        lr0=0.00179,
+        lrf=0.01518,
+        momentum=0.86333,
+        weight_decay=0.00051,
+        warmup_epochs=3.09569,
+        warmup_momentum=0.44584,
+        box=5.1931,
+        cls=0.74142,
+        dfl=1.16798,
+        hsv_h=0.01322,
+        hsv_s=0.41755,
+        hsv_v=0.20555,
+        degrees=0.0,
+        translate=0.0979,
+        scale=0.4822,
+        shear=0.0,
+        perspective=0.0,
+        flipud=0.0,
+        fliplr=0.16048,
+        bgr=0.0,
+        mixup=0.0,
+        copy_paste=0.0,
+    )
+'''
+'''
     # Train the model
     results = model.train(
         data=config["data"],
@@ -121,11 +207,36 @@ if __name__ == "__main__":
         device=config["device"],
         batch=config["batch_size"],
         workers=config["workers"],
-        patience=config["patience"],
-        lr0=config["lr0"],
-        optimizer=config["optimizer"]
-    )
+        mosaic=0,
+        seed=42,
 
+    )
+'''
+
+'''    custom_overrides = {
+        'lr0': 0.00923,
+        'lrf': 0.01177,
+        'momentum': 0.98,
+        'weight_decay': 0.00044,
+        'warmup_epochs': 3.06095,
+        'warmup_momentum': 0.82572,
+        'box': 6.68439,
+        'cls': 0.42109,
+        'dfl': 1.20487,
+        'hsv_h': 0.01034,
+        'hsv_s': 0.63122,
+        'hsv_v': 0.39781,
+        'degrees': 0.0,
+        'translate': 0.12352,
+        'scale': 0.76731,
+        'shear': 0.0,
+        'fliplr': 0.48081,
+        'mosaic': 0,
+        'optimizer': "AdamW"
+        
+        
+
+    }'''
 
 
 

@@ -4,10 +4,14 @@ from ultralytics import YOLO
 
 if __name__ == "__main__":
     IMAGE_PATH = "./images"
-    MODEL_PATH = "./runs/detect/train3/weights/best.pt"
+    VIDEO_PATH = "./videos"
+    MODEL_PATH = "./runs/detect/tune/weights/best.pt"
 
     model = YOLO(MODEL_PATH)
+    results = model(IMAGE_PATH,show= True)
 
+
+    '''
     # Run batched inference on a list of images
     images = []
     for image in os.listdir(IMAGE_PATH):
@@ -16,6 +20,7 @@ if __name__ == "__main__":
     results = model(images)  # return a list of Results objects
 
     # Process results list
+    
     for result in results:
         boxes = result.boxes  # Boxes object for bounding box outputs
         masks = result.masks  # Masks object for segmentation masks outputs
@@ -23,3 +28,4 @@ if __name__ == "__main__":
         probs = result.probs  # Probs object for classification outputs
         obb = result.obb  # Oriented boxes object for OBB outputs
         result.show()  # display to screen                to disk
+    '''
