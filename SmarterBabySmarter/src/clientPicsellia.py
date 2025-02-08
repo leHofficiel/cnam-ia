@@ -8,13 +8,16 @@ from picsellia.types.enums import AnnotationFileType, LogType, InferenceType, Fr
 from ultralytics import YOLO
 from ultralytics.models.yolo.detect import DetectionTrainer
 
+with open("config.yaml","r") as file:
+    yaml_config = yaml.safe_load(file)["config"]
+
 # Configuration globale
 CONFIG = {
-    "ORGA_NAME": "Picsalex-MLOps",
-    "API_TOKEN": "",
-    "DATASET_ID": "0193688e-aa8f-7cbe-9396-bec740a262d0",
-    "PROJECT_NAME": "Groupe_4",
-    "EXPERIMENT_NAME": "Test_rework9",
+    "ORGA_NAME": yaml_config["ORGA_NAME"],
+    "API_TOKEN": yaml_config["API_TOKEN"],
+    "DATASET_ID": yaml_config["DATASET_ID"],
+    "PROJECT_NAME": yaml_config["PROJECT_NAME"],
+    "EXPERIMENT_NAME": yaml_config["EXPERIMENT_NAME"],
     "DATASET_PATH": "./dataset",
     "ANNOTATION_PATH": "./annotations",
     "YOLO_CONFIG_PATH": "./dataset/yolo_config.yaml",
@@ -35,28 +38,28 @@ CONFIG = {
     },
 }
 
-
 def on_train_end(trainer: DetectionTrainer):
-    """Callback à la fin de l'entraînement pour enregistrer les métriques."""
-    try:
-        metrics_csv = pd.read_csv(trainer.csv)
-        for col in metrics_csv.columns:
-            experiment.log(name=col, data=list(metrics_csv[col]), type=LogType.LINE)
-    except Exception as e:
-        print(f'Error logging metrics: {e}')
-
     export = experiment.export_in_existing_model(client.get_model(CONFIG["PROJECT_NAME"]))
     experiment.attach_model_version(export)
     experiment.attach_dataset(CONFIG["EXPERIMENT_NAME"], dataset)
     export.update(type=InferenceType.OBJECT_DETECTION)
     export.update(framework=Framework.PYTORCH)
-    export.store(name="model-latest", path=trainer.best)
+   # export.store(name="model-best", path=trainer.best)
     experiment.log_parameters(CONFIG["TRAIN_CONFIG"])
 
-    # Log additional information
+def on_train_epoch_end(trainer: DetectionTrainer):
+    """Callback à la fin de chaque epoch pour enregistrer les métriques."""
     experiment.log(name="box_loss", data={'train': [float(trainer.loss_items[0].item())]}, type=LogType.LINE)
     experiment.log(name="cls_loss", data={'train': [float(trainer.loss_items[1].item())]}, type=LogType.LINE)
     experiment.log(name="dfl_loss", data={'train': [float(trainer.loss_items[2].item())]}, type=LogType.LINE)
+
+    experiment.log(name="epoch", data={'train': [float(trainer.epoch)]}, type=LogType.LINE)
+    experiment.log(name="fitness", data={'train': [trainer.fitness]}, type=LogType.LINE)
+
+   # experiment.log(name="precision(B)", data={'train': [float(trainer.metrics[0].item())]}, type=LogType.LINE)
+
+
+
 
 
 if __name__ == "__main__":
@@ -64,6 +67,7 @@ if __name__ == "__main__":
         organization_name=CONFIG["ORGA_NAME"],
         api_token=CONFIG["API_TOKEN"]
     )
+
 
     project = client.get_project(CONFIG["PROJECT_NAME"])
     dataset = client.get_dataset_version_by_id(CONFIG["DATASET_ID"])
@@ -111,7 +115,8 @@ if __name__ == "__main__":
 
     # Initialisation du modèle YOLO
     model = YOLO(CONFIG["YOLO_MODEL"])
-    model.add_callback("on_train_end", on_train_end)
+    model.add_callback("on_train_epoch_end", on_train_epoch_end)
+    model.add_callback("on_train_end",on_train_end)
 
     print(f'Training {CONFIG["YOLO_MODEL"]} on {CONFIG["TRAIN_CONFIG"]["data"]}')
     model.train(**CONFIG["TRAIN_CONFIG"])
