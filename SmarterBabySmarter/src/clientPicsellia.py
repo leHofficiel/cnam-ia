@@ -6,7 +6,7 @@ import pandas as pd
 from picsellia import Client
 from picsellia.types.enums import AnnotationFileType, LogType, InferenceType, Framework
 from ultralytics import YOLO
-from ultralytics.models.yolo.detect import DetectionTrainer
+from ultralytics.models.yolo.detect import DetectionTrainer, DetectionValidator
 
 with open("config.yaml","r") as file:
     yaml_config = yaml.safe_load(file)["config"]
@@ -24,7 +24,7 @@ CONFIG = {
     "YOLO_MODEL": "yolo11n.pt",
     "TRAIN_CONFIG": {
         "data": "./dataset/yolo_config.yaml",
-        "epochs": 10,
+        "epochs": 2,
         "batch": 32,
         "imgsz": 640,
         "device": "cuda",
@@ -44,14 +44,27 @@ def on_train_end(trainer: DetectionTrainer):
     experiment.attach_dataset(CONFIG["EXPERIMENT_NAME"], dataset)
     export.update(type=InferenceType.OBJECT_DETECTION)
     export.update(framework=Framework.PYTORCH)
-   # export.store(name="model-best", path=trainer.best)
+    export.store(name="model-best", path=trainer.best)
     experiment.log_parameters(CONFIG["TRAIN_CONFIG"])
+
+
+    experiment.store("confusion_matrix", str(trainer.save_dir) + "/confusion_matrix.png")
+    experiment.store("confusion_matrix_normalized", str(trainer.save_dir) + "/confusion_matrix_normalized.png")
+    experiment.store("F1_curve", str(trainer.save_dir) + "/F1_curve.png")
+    experiment.store("P_curve", str(trainer.save_dir) + "/P_curve.png")
+    experiment.store("PR_curve", str(trainer.save_dir) + "/PR_curve.png")
+    experiment.store("R_curve", str(trainer.save_dir) + "/R_curve.png")
+    experiment.store("labels", str(trainer.save_dir) + "/labels.jpg")
+
+
+
 
 def on_train_epoch_end(trainer: DetectionTrainer):
     """Callback à la fin de chaque epoch pour enregistrer les métriques."""
     experiment.log(name="box_loss", data={'train': [float(trainer.loss_items[0].item())]}, type=LogType.LINE)
     experiment.log(name="cls_loss", data={'train': [float(trainer.loss_items[1].item())]}, type=LogType.LINE)
     experiment.log(name="dfl_loss", data={'train': [float(trainer.loss_items[2].item())]}, type=LogType.LINE)
+
 
     experiment.log(name="epoch", data={'train': [float(trainer.epoch)]}, type=LogType.LINE)
     experiment.log(name="fitness", data={'train': [trainer.fitness]}, type=LogType.LINE)
@@ -65,6 +78,10 @@ def on_train_epoch_end(trainer: DetectionTrainer):
     experiment.log(name="pg1", data={'train': [float(trainer.lr["lr/pg1"])]}, type=LogType.LINE)
     experiment.log(name="pg2", data={'train': [float(trainer.lr["lr/pg2"])]}, type=LogType.LINE)
 
+def on_val_end(trainer: DetectionValidator):
+    experiment.log(name="box_loss", data={'val': [float(trainer.loss[0].item())]}, type=LogType.LINE)
+    experiment.log(name="cls_loss", data={'val': [float(trainer.loss[1].item())]}, type=LogType.LINE)
+    experiment.log(name="dfl_loss", data={'val': [float(trainer.loss[2].item())]}, type=LogType.LINE)
 
 
 if __name__ == "__main__":
@@ -122,6 +139,26 @@ if __name__ == "__main__":
     model = YOLO(CONFIG["YOLO_MODEL"])
     model.add_callback("on_train_epoch_end", on_train_epoch_end)
     model.add_callback("on_train_end",on_train_end)
+    model.add_callback("on_val_end",on_val_end)
 
     print(f'Training {CONFIG["YOLO_MODEL"]} on {CONFIG["TRAIN_CONFIG"]["data"]}')
     model.train(**CONFIG["TRAIN_CONFIG"])
+    results = model.predict(f"{CONFIG['DATASET_PATH']}/images/test", device= "cuda")
+    for item in results:
+        img_id = os.path.splitext(os.path.basename(item.path))[0]
+        asset = dataset.find_asset(id=img_id)
+
+        boxes = [
+            (
+                int(item.boxes.xywh[i][0] - item.boxes.xywh[i][2] // 2),  # x_min
+                int(item.boxes.xywh[i][1] - item.boxes.xywh[i][3] // 2),  # y_min
+                int(item.boxes.xywh[i][2]),  # width
+                int(item.boxes.xywh[i][3]),  # height
+                dataset.get_label(item.names[int(item.boxes.cls[i])]),  # label
+                float(item.boxes.conf[i])  # confidence
+            )
+            for i in range(item.boxes.cls.shape[0])
+        ]
+
+        experiment.add_evaluation(asset, rectangles=boxes)
+        print(f'Asset {img_id} evaluation uploaded')
