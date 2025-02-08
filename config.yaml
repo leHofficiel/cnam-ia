@@ -1,0 +1,6 @@
+config:
+  ORGA_NAME: ""
+  API_TOKEN: ""
+  DATASET_ID: ""
+  PROJECT_NAME: ""
+  EXPERIMENT_NAME: ""
