@@ -56,9 +56,14 @@ def on_train_epoch_end(trainer: DetectionTrainer):
     experiment.log(name="epoch", data={'train': [float(trainer.epoch)]}, type=LogType.LINE)
     experiment.log(name="fitness", data={'train': [trainer.fitness]}, type=LogType.LINE)
 
-   # experiment.log(name="precision(B)", data={'train': [float(trainer.metrics[0].item())]}, type=LogType.LINE)
+    experiment.log(name="precision(B)", data={'train': [float(trainer.metrics["metrics/precision(B)"])]}, type=LogType.LINE)
+    experiment.log(name="recall(B)", data={'train': [float(trainer.metrics["metrics/recall(B)"])]}, type=LogType.LINE)
+    experiment.log(name="mAP50(B)", data={'train': [float(trainer.metrics["metrics/mAP50(B)"])]}, type=LogType.LINE)
+    experiment.log(name="mAP50-95(B)", data={'train': [float(trainer.metrics["metrics/mAP50-95(B)"])]}, type=LogType.LINE)
 
-
+    experiment.log(name="pg0", data={'train': [float(trainer.lr["lr/pg0"])]}, type=LogType.LINE)
+    experiment.log(name="pg1", data={'train': [float(trainer.lr["lr/pg1"])]}, type=LogType.LINE)
+    experiment.log(name="pg2", data={'train': [float(trainer.lr["lr/pg2"])]}, type=LogType.LINE)
 
 
 
