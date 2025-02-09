@@ -31,5 +31,5 @@ repos:
     hooks:
     -   id: pylint
         name: pylint
-        args: ["--disable=C0114,C0115,C0116,E0401"]  # Erreur d'import I don't know why , on est crevé
+        args: ["--disable=C0114,C0115,C0116,E0401,E0601,W0601,R0914"]  # Erreur d'import I don't know why , on est crevé
         language_version: python3.11

@@ -1,28 +1,22 @@
-import os
-import sys
-import yaml
-import shutil
 import argparse
 import logging
+import shutil
 from pathlib import Path
+
+import yaml
 from picsellia import Client
-from picsellia.types.enums import AnnotationFileType, LogType, InferenceType, Framework
+from picsellia.exceptions import ResourceNotFoundError
+from picsellia.types.enums import AnnotationFileType, Framework, InferenceType, LogType
 from ultralytics import YOLO
 from ultralytics.models.yolo.detect import DetectionTrainer, DetectionValidator
 
 
-def load_config(config_file: str) -> dict:
-    """Charge la configuration depuis un fichier YAML."""
-    with open(config_file, "r") as file:
-        config_yaml = yaml.safe_load(file)
-    return config_yaml["config"]
-
 def load_yaml(file_path: str) -> dict:
-    with open(file_path, "r") as file:
+    with open(file_path, "r", encoding="utf-8") as file:
         return yaml.safe_load(file)
 
-def prepare_dataset(dataset, config: dict) -> None:
-    """Prépare le dataset en téléchargeant les images, en exportant et réorganisant les annotations."""
+
+def prepare_dataset(pics_dataset, config: dict) -> None:
     dataset_path = Path(config["DATASET_PATH"])
     annotation_path = Path(config["ANNOTATION_PATH"])
 
@@ -31,10 +25,11 @@ def prepare_dataset(dataset, config: dict) -> None:
         shutil.rmtree(dataset_path, ignore_errors=True)
 
     # Effectue le split train/val/test
-    train_assets, val_assets, test_assets, _, _, _, labels = dataset.train_test_val_split([0.6, 0.2, 0.2],
-                                                                                          random_seed=42)
+    train_assets, val_assets, test_assets, _, _, _, labels = pics_dataset.train_test_val_split(
+        [0.6, 0.2, 0.2], random_seed=42
+    )
     # Crée les dossiers nécessaires
-    for split in ['train', 'val', 'test']:
+    for split in ["train", "val", "test"]:
         (dataset_path / "images" / split).mkdir(parents=True, exist_ok=True)
 
     # Télécharge les images
@@ -44,22 +39,22 @@ def prepare_dataset(dataset, config: dict) -> None:
 
     # Exporte les annotations au format YOLO
     annotation_path.mkdir(parents=True, exist_ok=True)
-    dataset.export_annotation_file(AnnotationFileType.YOLO, str(annotation_path), use_id=True)
-    annotation_zip = annotation_path / f'{dataset.id}_annotations.zip'
+    pics_dataset.export_annotation_file(AnnotationFileType.YOLO, str(annotation_path), use_id=True)
+    annotation_zip = annotation_path / f"{pics_dataset.id}_annotations.zip"
     if annotation_zip.exists():
         shutil.unpack_archive(str(annotation_zip), str(annotation_path))
 
     # Déplace les fichiers d’annotation dans les dossiers correspondants
-    for split in ['train', 'val', 'test']:
+    for split in ["train", "val", "test"]:
         labels_dir = dataset_path / "labels" / split
         labels_dir.mkdir(parents=True, exist_ok=True)
         images_dir = dataset_path / "images" / split
         for image_file in images_dir.iterdir():
             if image_file.is_file():
                 image_name = image_file.stem
-                annotation_file = annotation_path / f'{image_name}.txt'
+                annotation_file = annotation_path / f"{image_name}.txt"
                 if annotation_file.exists():
-                    shutil.move(str(annotation_file), str(labels_dir / f'{image_name}.txt'))
+                    shutil.move(str(annotation_file), str(labels_dir / f"{image_name}.txt"))
 
     # Crée le fichier de configuration YOLO
     yolo_config = {
@@ -67,10 +62,10 @@ def prepare_dataset(dataset, config: dict) -> None:
         "train": "images/train",
         "val": "images/val",
         "test": "images/test",
-        "names": {index: label.name for index, label in enumerate(labels)}
+        "names": {index: label.name for index, label in enumerate(labels)},
     }
     yolo_config_path = Path(config["YOLO_CONFIG_PATH"])
-    with open(yolo_config_path, 'w') as file:
+    with open(yolo_config_path, "w", encoding="utf-8") as file:
         yaml.dump(yolo_config, file)
 
     logging.info("Dataset prepared.")
@@ -94,7 +89,7 @@ def on_train_end(trainer: DetectionTrainer) -> None:
         "P_curve": "P_curve.png",
         "PR_curve": "PR_curve.png",
         "R_curve": "R_curve.png",
-        "labels": "labels.jpg"
+        "labels": "labels.jpg",
     }
     for key, filename in metrics_files.items():
         experiment.store(key, str(Path(trainer.save_dir) / filename))
@@ -117,23 +112,29 @@ def on_train_epoch_end(trainer: DetectionTrainer) -> None:
         "pg2": float(trainer.lr["lr/pg2"]),
     }
     for name, value in log_data.items():
-        experiment.log(name=name, data={'train': [value]}, type=LogType.LINE)
+        experiment.log(name=name, data={"train": [value]}, type=LogType.LINE)
 
 
 def on_val_end(trainer: DetectionValidator) -> None:
     """Callback appelé à la fin de la validation."""
-    experiment.log(name="box_loss", data={'val': [float(trainer.loss[0].item())]}, type=LogType.LINE)
-    experiment.log(name="cls_loss", data={'val': [float(trainer.loss[1].item())]}, type=LogType.LINE)
-    experiment.log(name="dfl_loss", data={'val': [float(trainer.loss[2].item())]}, type=LogType.LINE)
+    experiment.log(
+        name="box_loss", data={"val": [float(trainer.loss[0].item())]}, type=LogType.LINE
+    )
+    experiment.log(
+        name="cls_loss", data={"val": [float(trainer.loss[1].item())]}, type=LogType.LINE
+    )
+    experiment.log(
+        name="dfl_loss", data={"val": [float(trainer.loss[2].item())]}, type=LogType.LINE
+    )
 
 
-def train_and_evaluate(client, project, dataset, config: dict) -> None:
+def train_and_evaluate(pics_project, pics_dataset, config: dict) -> None:
     """Lance l'entraînement et l'évaluation du modèle YOLO."""
     global experiment  # Pour que les callbacks puissent y accéder
     try:
-        experiment = project.get_experiment(config["EXPERIMENT_NAME"])
-    except Exception:
-        experiment = project.create_experiment(config["EXPERIMENT_NAME"])
+        experiment = pics_project.get_experiment(config["EXPERIMENT_NAME"])
+    except ResourceNotFoundError:
+        experiment = pics_project.create_experiment(config["EXPERIMENT_NAME"])
 
     # Initialisation du modèle YOLO
     model = YOLO(config["YOLO_MODEL"])
@@ -141,27 +142,27 @@ def train_and_evaluate(client, project, dataset, config: dict) -> None:
     model.add_callback("on_train_end", on_train_end)
     model.add_callback("on_val_end", on_val_end)
 
-    logging.info(f'Training {config["YOLO_MODEL"]} on {config["TRAIN_CONFIG"]["data"]}')
+    logging.info("Training %s on %s", CONFIG["YOLO_MODEL"], CONFIG["TRAIN_CONFIG"]["data"])
     model.train(**config["TRAIN_CONFIG"])
 
     # Évaluation sur le jeu de test
     results = model.predict(f"{config['DATASET_PATH']}/images/test", device="cuda")
     for item in results:
         img_id = Path(item.path).stem
-        asset = dataset.find_asset(id=img_id)
+        asset = pics_dataset.find_asset(id=img_id)
         boxes = [
             (
                 int(item.boxes.xywh[i][0] - item.boxes.xywh[i][2] // 2),  # x_min
                 int(item.boxes.xywh[i][1] - item.boxes.xywh[i][3] // 2),  # y_min
                 int(item.boxes.xywh[i][2]),  # width
                 int(item.boxes.xywh[i][3]),  # height
-                dataset.get_label(item.names[int(item.boxes.cls[i])]),  # label
-                float(item.boxes.conf[i])  # confidence
+                pics_dataset.get_label(item.names[int(item.boxes.cls[i])]),  # label
+                float(item.boxes.conf[i]),  # confidence
             )
             for i in range(item.boxes.cls.shape[0])
         ]
         experiment.add_evaluation(asset, rectangles=boxes)
-        logging.info(f'Asset {img_id} evaluation uploaded')
+        logging.info("Asset %s evaluation uploaded", img_id)
 
 
 if __name__ == "__main__":
@@ -169,26 +170,27 @@ if __name__ == "__main__":
 
     # Gestion des arguments en ligne de commande
     parser = argparse.ArgumentParser(description="Script de formation YOLO avec picsellia")
-    parser.add_argument("-clear", action="store_true", help="Prépare le dataset en le nettoyant d'abord")
+    parser.add_argument(
+        "-clear", action="store_true", help="Prépare le dataset en le nettoyant d'abord"
+    )
     args = parser.parse_args()
 
     # Chargement de la configuration
     CONFIG = load_yaml("config.yaml")["config"]
     CONFIG_TRAIN = load_yaml("config_train.yaml")["config_train"]
     YOLO_MODEL = load_yaml("config_train.yaml")["yolo_model"]
-    CONFIG.update({
-        "DATASET_PATH": "./dataset",
-        "ANNOTATION_PATH": "./annotations",
-        "YOLO_CONFIG_PATH": "./dataset/yolo_config.yaml",
-        "YOLO_MODEL": YOLO_MODEL,
-        "TRAIN_CONFIG": CONFIG_TRAIN,
-    })
+    CONFIG.update(
+        {
+            "DATASET_PATH": "./dataset",
+            "ANNOTATION_PATH": "./annotations",
+            "YOLO_CONFIG_PATH": "./dataset/yolo_config.yaml",
+            "YOLO_MODEL": YOLO_MODEL,
+            "TRAIN_CONFIG": CONFIG_TRAIN,
+        }
+    )
 
     # Initialisation du client et récupération du projet/dataset
-    client = Client(
-        organization_name=CONFIG["ORGA_NAME"],
-        api_token=CONFIG["API_TOKEN"]
-    )
+    client = Client(organization_name=CONFIG["ORGA_NAME"], api_token=CONFIG["API_TOKEN"])
     project = client.get_project(CONFIG["PROJECT_NAME"])
     dataset = client.get_dataset_version_by_id(CONFIG["DATASET_ID"])
 
@@ -197,4 +199,4 @@ if __name__ == "__main__":
         prepare_dataset(dataset, CONFIG)
 
     # Entraînement et évaluation
-    train_and_evaluate(client, project, dataset, CONFIG)
+    train_and_evaluate(project, dataset, CONFIG)
