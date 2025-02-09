@@ -8,6 +8,6 @@ config_train:
   optimizer: "auto"
   lr0: 0.01
   patience: 50
-  seed: 4
+  seed: 42
   mosaic: 0
   close_mosaic: 0
