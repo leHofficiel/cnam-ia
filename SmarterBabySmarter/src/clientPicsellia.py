@@ -175,11 +175,12 @@ if __name__ == "__main__":
     # Chargement de la configuration
     CONFIG = load_yaml("config.yaml")["config"]
     CONFIG_TRAIN = load_yaml("config_train.yaml")["config_train"]
+    YOLO_MODEL = load_yaml("config_train.yaml")["yolo_model"]
     CONFIG.update({
         "DATASET_PATH": "./dataset",
         "ANNOTATION_PATH": "./annotations",
         "YOLO_CONFIG_PATH": "./dataset/yolo_config.yaml",
-        "YOLO_MODEL": "yolo11n.pt",
+        "YOLO_MODEL": YOLO_MODEL,
         "TRAIN_CONFIG": CONFIG_TRAIN,
     })
 

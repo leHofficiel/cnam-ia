@@ -11,3 +11,5 @@ config_train:
   seed: 42
   mosaic: 0
   close_mosaic: 0
+
+yolo_model: "yolo11n.pt"
