@@ -17,6 +17,9 @@ def load_config(config_file: str) -> dict:
         config_yaml = yaml.safe_load(file)
     return config_yaml["config"]
 
+def load_yaml(file_path: str) -> dict:
+    with open(file_path, "r") as file:
+        return yaml.safe_load(file)
 
 def prepare_dataset(dataset, config: dict) -> None:
     """Prépare le dataset en téléchargeant les images, en exportant et réorganisant les annotations."""
@@ -170,26 +173,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Chargement de la configuration
-    CONFIG = load_config("config.yaml")
+    CONFIG = load_yaml("config.yaml")["config"]
+    CONFIG_TRAIN = load_yaml("config_train.yaml")["config_train"]
     CONFIG.update({
         "DATASET_PATH": "./dataset",
         "ANNOTATION_PATH": "./annotations",
         "YOLO_CONFIG_PATH": "./dataset/yolo_config.yaml",
         "YOLO_MODEL": "yolo11n.pt",
-        "TRAIN_CONFIG": {
-            "data": "./dataset/yolo_config.yaml",
-            "epochs": 10,
-            "batch": 32,
-            "imgsz": 640,
-            "device": "cuda",
-            "workers": 8,
-            "optimizer": "auto",
-            "lr0": 0.01,
-            "patience": 50,
-            "seed": 42,
-            "mosaic": 0,
-            "close_mosaic": 0,
-        },
+        "TRAIN_CONFIG": CONFIG_TRAIN,
     })
 
     # Initialisation du client et récupération du projet/dataset
