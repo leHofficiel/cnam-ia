@@ -15,9 +15,6 @@ CONFIG = {
     "EXPERIMENT_NAME": yaml_config["EXPERIMENT_NAME"],}
 
 if __name__ == "__main__":
-    IMAGE_PATH = "./images"
-    VIDEO_PATH = "./videos"
-    MODEL_PATH = "./runs/detect/tune/weights/best.pt"
 
     client = Client(
         organization_name=CONFIG["ORGA_NAME"],
@@ -28,13 +25,13 @@ if __name__ == "__main__":
     experiment = project.get_experiment(CONFIG["EXPERIMENT_NAME"])
 
     base_model = experiment.get_base_model_version()
-    base_model_pt = base_model.get_file('model-latest')
+    base_model_pt = base_model.get_file('model-best')
     base_model_pt.download("./",force_replace=True)
 
     model = YOLO("./best.pt")
     if len(sys.argv) >= 2 and sys.argv[1] == "-webcam":
         results = model(0,show= True)
     if len(sys.argv) >= 3 and sys.argv[1] == "-image":
-        results = model(sys.argv[2],show= True)
+        results = model(sys.argv[2],save=True,project="./result_after_exec/images")
     if len(sys.argv) >= 3 and sys.argv[1] == "-video":
-        results = model(sys.argv[2],show= True)
+        results = model(sys.argv[2],save=True,project="./result_after_exec/videos")
