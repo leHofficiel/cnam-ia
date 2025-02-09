@@ -2,43 +2,79 @@ import os
 import sys
 import yaml
 import shutil
-import pandas as pd
+import argparse
+import logging
+from pathlib import Path
 from picsellia import Client
 from picsellia.types.enums import AnnotationFileType, LogType, InferenceType, Framework
 from ultralytics import YOLO
 from ultralytics.models.yolo.detect import DetectionTrainer, DetectionValidator
 
-with open("config.yaml","r") as file:
-    yaml_config = yaml.safe_load(file)["config"]
 
-# Configuration globale
-CONFIG = {
-    "ORGA_NAME": yaml_config["ORGA_NAME"],
-    "API_TOKEN": yaml_config["API_TOKEN"],
-    "DATASET_ID": yaml_config["DATASET_ID"],
-    "PROJECT_NAME": yaml_config["PROJECT_NAME"],
-    "EXPERIMENT_NAME": yaml_config["EXPERIMENT_NAME"],
-    "DATASET_PATH": "./dataset",
-    "ANNOTATION_PATH": "./annotations",
-    "YOLO_CONFIG_PATH": "./dataset/yolo_config.yaml",
-    "YOLO_MODEL": "yolo11n.pt",
-    "TRAIN_CONFIG": {
-        "data": "./dataset/yolo_config.yaml",
-        "epochs": 2,
-        "batch": 32,
-        "imgsz": 640,
-        "device": "cuda",
-        "workers": 8,
-        "optimizer": "AdamW",
-        "lr0": 0.01,
-        "patience": 40,
-        "seed": 42,
-        "mosaic": 0,
-        "close_mosaic": 0,
-    },
-}
+def load_config(config_file: str) -> dict:
+    """Charge la configuration depuis un fichier YAML."""
+    with open(config_file, "r") as file:
+        config_yaml = yaml.safe_load(file)
+    return config_yaml["config"]
 
-def on_train_end(trainer: DetectionTrainer):
+
+def prepare_dataset(dataset, config: dict) -> None:
+    """Prépare le dataset en téléchargeant les images, en exportant et réorganisant les annotations."""
+    dataset_path = Path(config["DATASET_PATH"])
+    annotation_path = Path(config["ANNOTATION_PATH"])
+
+    # Supprime le dossier existant
+    if dataset_path.exists():
+        shutil.rmtree(dataset_path, ignore_errors=True)
+
+    # Effectue le split train/val/test
+    train_assets, val_assets, test_assets, _, _, _, labels = dataset.train_test_val_split([0.6, 0.2, 0.2],
+                                                                                          random_seed=42)
+    # Crée les dossiers nécessaires
+    for split in ['train', 'val', 'test']:
+        (dataset_path / "images" / split).mkdir(parents=True, exist_ok=True)
+
+    # Télécharge les images
+    train_assets.download(str(dataset_path / "images" / "train"), use_id=True)
+    val_assets.download(str(dataset_path / "images" / "val"), use_id=True)
+    test_assets.download(str(dataset_path / "images" / "test"), use_id=True)
+
+    # Exporte les annotations au format YOLO
+    annotation_path.mkdir(parents=True, exist_ok=True)
+    dataset.export_annotation_file(AnnotationFileType.YOLO, str(annotation_path), use_id=True)
+    annotation_zip = annotation_path / f'{dataset.id}_annotations.zip'
+    if annotation_zip.exists():
+        shutil.unpack_archive(str(annotation_zip), str(annotation_path))
+
+    # Déplace les fichiers d’annotation dans les dossiers correspondants
+    for split in ['train', 'val', 'test']:
+        labels_dir = dataset_path / "labels" / split
+        labels_dir.mkdir(parents=True, exist_ok=True)
+        images_dir = dataset_path / "images" / split
+        for image_file in images_dir.iterdir():
+            if image_file.is_file():
+                image_name = image_file.stem
+                annotation_file = annotation_path / f'{image_name}.txt'
+                if annotation_file.exists():
+                    shutil.move(str(annotation_file), str(labels_dir / f'{image_name}.txt'))
+
+    # Crée le fichier de configuration YOLO
+    yolo_config = {
+        "path": config["DATASET_PATH"],
+        "train": "images/train",
+        "val": "images/val",
+        "test": "images/test",
+        "names": {index: label.name for index, label in enumerate(labels)}
+    }
+    yolo_config_path = Path(config["YOLO_CONFIG_PATH"])
+    with open(yolo_config_path, 'w') as file:
+        yaml.dump(yolo_config, file)
+
+    logging.info("Dataset prepared.")
+
+
+def on_train_end(trainer: DetectionTrainer) -> None:
+    """Callback appelé à la fin de l'entraînement."""
     export = experiment.export_in_existing_model(client.get_model(CONFIG["PROJECT_NAME"]))
     experiment.attach_model_version(export)
     experiment.attach_dataset(CONFIG["EXPERIMENT_NAME"], dataset)
@@ -47,107 +83,69 @@ def on_train_end(trainer: DetectionTrainer):
     export.store(name="model-best", path=trainer.best)
     experiment.log_parameters(CONFIG["TRAIN_CONFIG"])
 
-
-    experiment.store("confusion_matrix", str(trainer.save_dir) + "/confusion_matrix.png")
-    experiment.store("confusion_matrix_normalized", str(trainer.save_dir) + "/confusion_matrix_normalized.png")
-    experiment.store("F1_curve", str(trainer.save_dir) + "/F1_curve.png")
-    experiment.store("P_curve", str(trainer.save_dir) + "/P_curve.png")
-    experiment.store("PR_curve", str(trainer.save_dir) + "/PR_curve.png")
-    experiment.store("R_curve", str(trainer.save_dir) + "/R_curve.png")
-    experiment.store("labels", str(trainer.save_dir) + "/labels.jpg")
-
-
-
-
-def on_train_epoch_end(trainer: DetectionTrainer):
-    """Callback à la fin de chaque epoch pour enregistrer les métriques."""
-    experiment.log(name="box_loss", data={'train': [float(trainer.loss_items[0].item())]}, type=LogType.LINE)
-    experiment.log(name="cls_loss", data={'train': [float(trainer.loss_items[1].item())]}, type=LogType.LINE)
-    experiment.log(name="dfl_loss", data={'train': [float(trainer.loss_items[2].item())]}, type=LogType.LINE)
+    # Stocke plusieurs fichiers de métriques
+    metrics_files = {
+        "confusion_matrix": "confusion_matrix.png",
+        "confusion_matrix_normalized": "confusion_matrix_normalized.png",
+        "F1_curve": "F1_curve.png",
+        "P_curve": "P_curve.png",
+        "PR_curve": "PR_curve.png",
+        "R_curve": "R_curve.png",
+        "labels": "labels.jpg"
+    }
+    for key, filename in metrics_files.items():
+        experiment.store(key, str(Path(trainer.save_dir) / filename))
 
 
-    experiment.log(name="epoch", data={'train': [float(trainer.epoch)]}, type=LogType.LINE)
-    experiment.log(name="fitness", data={'train': [trainer.fitness]}, type=LogType.LINE)
+def on_train_epoch_end(trainer: DetectionTrainer) -> None:
+    """Callback appelé à la fin de chaque epoch pour enregistrer les métriques d'entraînement."""
+    log_data = {
+        "box_loss": float(trainer.loss_items[0].item()),
+        "cls_loss": float(trainer.loss_items[1].item()),
+        "dfl_loss": float(trainer.loss_items[2].item()),
+        "epoch": float(trainer.epoch),
+        "fitness": trainer.fitness,
+        "precision(B)": float(trainer.metrics["metrics/precision(B)"]),
+        "recall(B)": float(trainer.metrics["metrics/recall(B)"]),
+        "mAP50(B)": float(trainer.metrics["metrics/mAP50(B)"]),
+        "mAP50-95(B)": float(trainer.metrics["metrics/mAP50-95(B)"]),
+        "pg0": float(trainer.lr["lr/pg0"]),
+        "pg1": float(trainer.lr["lr/pg1"]),
+        "pg2": float(trainer.lr["lr/pg2"]),
+    }
+    for name, value in log_data.items():
+        experiment.log(name=name, data={'train': [value]}, type=LogType.LINE)
 
-    experiment.log(name="precision(B)", data={'train': [float(trainer.metrics["metrics/precision(B)"])]}, type=LogType.LINE)
-    experiment.log(name="recall(B)", data={'train': [float(trainer.metrics["metrics/recall(B)"])]}, type=LogType.LINE)
-    experiment.log(name="mAP50(B)", data={'train': [float(trainer.metrics["metrics/mAP50(B)"])]}, type=LogType.LINE)
-    experiment.log(name="mAP50-95(B)", data={'train': [float(trainer.metrics["metrics/mAP50-95(B)"])]}, type=LogType.LINE)
 
-    experiment.log(name="pg0", data={'train': [float(trainer.lr["lr/pg0"])]}, type=LogType.LINE)
-    experiment.log(name="pg1", data={'train': [float(trainer.lr["lr/pg1"])]}, type=LogType.LINE)
-    experiment.log(name="pg2", data={'train': [float(trainer.lr["lr/pg2"])]}, type=LogType.LINE)
-
-def on_val_end(trainer: DetectionValidator):
+def on_val_end(trainer: DetectionValidator) -> None:
+    """Callback appelé à la fin de la validation."""
     experiment.log(name="box_loss", data={'val': [float(trainer.loss[0].item())]}, type=LogType.LINE)
     experiment.log(name="cls_loss", data={'val': [float(trainer.loss[1].item())]}, type=LogType.LINE)
     experiment.log(name="dfl_loss", data={'val': [float(trainer.loss[2].item())]}, type=LogType.LINE)
 
 
-if __name__ == "__main__":
-    client = Client(
-        organization_name=CONFIG["ORGA_NAME"],
-        api_token=CONFIG["API_TOKEN"]
-    )
-
-
-    project = client.get_project(CONFIG["PROJECT_NAME"])
-    dataset = client.get_dataset_version_by_id(CONFIG["DATASET_ID"])
-
+def train_and_evaluate(client, project, dataset, config: dict) -> None:
+    """Lance l'entraînement et l'évaluation du modèle YOLO."""
+    global experiment  # Pour que les callbacks puissent y accéder
     try:
-        experiment = project.get_experiment(CONFIG["EXPERIMENT_NAME"])
+        experiment = project.get_experiment(config["EXPERIMENT_NAME"])
     except Exception:
-        experiment = project.create_experiment(CONFIG["EXPERIMENT_NAME"])
-
-    if len(sys.argv) >= 2 and sys.argv[1] == "-clear":
-        shutil.rmtree(CONFIG["DATASET_PATH"], ignore_errors=True)
-        train_assets, val_assets, test_assets, _, _, _, labels = dataset.train_test_val_split([0.6, 0.2, 0.2],
-                                                                                              random_seed=42)
-
-        train_assets.download(f"{CONFIG['DATASET_PATH']}/images/train", use_id=True)
-        val_assets.download(f"{CONFIG['DATASET_PATH']}/images/val", use_id=True)
-        test_assets.download(f"{CONFIG['DATASET_PATH']}/images/test", use_id=True)
-
-        dataset.export_annotation_file(AnnotationFileType.YOLO, CONFIG["ANNOTATION_PATH"], use_id=True)
-
-        annotation_zip = f'{CONFIG["ANNOTATION_PATH"]}/{dataset.id}_annotations.zip'
-        if os.path.exists(annotation_zip):
-            shutil.unpack_archive(annotation_zip, CONFIG["ANNOTATION_PATH"])
-
-        for split in ['train', 'val', 'test']:
-            os.makedirs(f'{CONFIG["DATASET_PATH"]}/labels/{split}', exist_ok=True)
-            for image in os.listdir(f"{CONFIG['DATASET_PATH']}/images/{split}"):
-                image_name = os.path.splitext(image)[0]
-                annotation_file = f'{CONFIG["ANNOTATION_PATH"]}/{image_name}.txt'
-                if os.path.exists(annotation_file):
-                    shutil.move(annotation_file, f'{CONFIG["DATASET_PATH"]}/labels/{split}/{image_name}.txt')
-
-        yaml_config = {
-            "path": CONFIG["DATASET_PATH"],
-            "train": "images/train",
-            "val": "images/val",
-            "test": "images/test",
-            "names": {index: label.name for index, label in enumerate(labels)}
-        }
-
-        with open(CONFIG["YOLO_CONFIG_PATH"], 'w') as file:
-            yaml.dump(yaml_config, file)
-
-        print("Dataset prepared")
+        experiment = project.create_experiment(config["EXPERIMENT_NAME"])
 
     # Initialisation du modèle YOLO
-    model = YOLO(CONFIG["YOLO_MODEL"])
+    model = YOLO(config["YOLO_MODEL"])
     model.add_callback("on_train_epoch_end", on_train_epoch_end)
-    model.add_callback("on_train_end",on_train_end)
-    model.add_callback("on_val_end",on_val_end)
+    model.add_callback("on_train_end", on_train_end)
+    model.add_callback("on_val_end", on_val_end)
 
-    print(f'Training {CONFIG["YOLO_MODEL"]} on {CONFIG["TRAIN_CONFIG"]["data"]}')
-    model.train(**CONFIG["TRAIN_CONFIG"])
-    results = model.predict(f"{CONFIG['DATASET_PATH']}/images/test", device= "cuda")
+    logging.info(f'Training {config["YOLO_MODEL"]} on {config["TRAIN_CONFIG"]["data"]}')
+    model.train(**config["TRAIN_CONFIG"])
+
+    # Évaluation sur le jeu de test
+    results = model.predict(f"{config['DATASET_PATH']}/images/test", device="cuda")
     for item in results:
-        img_id = os.path.splitext(os.path.basename(item.path))[0]
+        img_id = Path(item.path).stem
         asset = dataset.find_asset(id=img_id)
-
         boxes = [
             (
                 int(item.boxes.xywh[i][0] - item.boxes.xywh[i][2] // 2),  # x_min
@@ -159,6 +157,52 @@ if __name__ == "__main__":
             )
             for i in range(item.boxes.cls.shape[0])
         ]
-
         experiment.add_evaluation(asset, rectangles=boxes)
-        print(f'Asset {img_id} evaluation uploaded')
+        logging.info(f'Asset {img_id} evaluation uploaded')
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
+    # Gestion des arguments en ligne de commande
+    parser = argparse.ArgumentParser(description="Script de formation YOLO avec picsellia")
+    parser.add_argument("-clear", action="store_true", help="Prépare le dataset en le nettoyant d'abord")
+    args = parser.parse_args()
+
+    # Chargement de la configuration
+    CONFIG = load_config("config.yaml")
+    CONFIG.update({
+        "DATASET_PATH": "./dataset",
+        "ANNOTATION_PATH": "./annotations",
+        "YOLO_CONFIG_PATH": "./dataset/yolo_config.yaml",
+        "YOLO_MODEL": "yolo11n.pt",
+        "TRAIN_CONFIG": {
+            "data": "./dataset/yolo_config.yaml",
+            "epochs": 10,
+            "batch": 32,
+            "imgsz": 640,
+            "device": "cuda",
+            "workers": 8,
+            "optimizer": "auto",
+            "lr0": 0.01,
+            "patience": 50,
+            "seed": 42,
+            "mosaic": 0,
+            "close_mosaic": 0,
+        },
+    })
+
+    # Initialisation du client et récupération du projet/dataset
+    client = Client(
+        organization_name=CONFIG["ORGA_NAME"],
+        api_token=CONFIG["API_TOKEN"]
+    )
+    project = client.get_project(CONFIG["PROJECT_NAME"])
+    dataset = client.get_dataset_version_by_id(CONFIG["DATASET_ID"])
+
+    # Préparation du dataset si l'argument -clear est présent
+    if args.clear:
+        prepare_dataset(dataset, CONFIG)
+
+    # Entraînement et évaluation
+    train_and_evaluate(client, project, dataset, CONFIG)
